@@ -2714,19 +2714,29 @@ function syde:Init(library)
 		QuickActions = library.QuickActions or false;
 	}
 
-	-- FPS tracking
-	local lastTime = tick()
-	local frames = 0
+	-- FPS tracking (zero overhead render FPS meter)
+	local frameCounter = 0
+	local lastFpsReset = os.clock()
+	local calculatedFps = 60
+
+	runservice.RenderStepped:Connect(function()
+		frameCounter += 1
+		local now = os.clock()
+		if now - lastFpsReset >= 0.5 then
+			calculatedFps = math.round(frameCounter / (now - lastFpsReset))
+			frameCounter = 0
+			lastFpsReset = now
+		end
+	end)
 
 	if mh then
 		task.spawn(function()
 			while mh do
-				task.wait(1)
+				task.wait(0.5)
 				local info = Minihome and Minihome:FindFirstChild("info")
 				if not info then break end
 
-				local fps = math.floor(workspace:GetRealPhysicsFPS())
-				info.fps.Text = fps .. " FPS"
+				info.fps.Text = calculatedFps .. " FPS"
 
 				local hour = tonumber(os.date("%I"))
 				info.time.Text = hour .. os.date(":%M")
