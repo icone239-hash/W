@@ -5702,7 +5702,7 @@ function syde:Init(library)
 
 					syde:replayLoadTweens(Slider.slide.slideframe)
 
-					local decimalPlaces = syde:DecimalPlaces(Options.Increment)
+					local decimalPlaces = Options.Decimals or Options.Decimal or Options.Precision or syde:DecimalPlaces(Options.Increment)
 					Slider.v.Text = string.format("<font size='14'>%." .. decimalPlaces .. "f</font><font color='#434343'>/%." .. decimalPlaces .. "f</font>", Options.StarterValue, Options.Range[2])
 
 					local function BuildTicks(slide, options)
@@ -5805,7 +5805,8 @@ function syde:Init(library)
 							local range = Options.Range[2] - Options.Range[1]
 							local newValue = Options.Range[1] + sliderPosition * range
 							newValue = math.floor((newValue - Options.Range[1]) / Options.Increment + 0.5) * Options.Increment + Options.Range[1]
-							newValue = syde:RoundTo(newValue, syde:DecimalPlaces(Options.Increment))
+							local decimalPlaces = Options.Decimals or Options.Decimal or Options.Precision or syde:DecimalPlaces(Options.Increment)
+							newValue = syde:RoundTo(newValue, decimalPlaces)
 
 							-- Update the slider visual position
 							local snapPosition = (newValue - Options.Range[1]) / range
@@ -5813,7 +5814,6 @@ function syde:Init(library)
 
 
 							-- Update the displayed value
-							local decimalPlaces = syde:DecimalPlaces(Options.Increment)
 							Slider.v.Text = string.format("<font size='14'>%." .. decimalPlaces .. "f</font><font color='#434343'>/%." .. decimalPlaces .. "f</font>", newValue, Options.Range[2])
 
 
