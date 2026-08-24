@@ -5664,11 +5664,13 @@ function syde:Init(library)
 
 					Options = {
 						Title = Options.Title or "Slider";
-						Increment = Options.Increment or 1;
+						Increment = Options.Step or Options.Increment or 0.01;
 						Range = Options.Range or {0, 100};
 						StarterValue = Options.StarterValue or 16;
 						CallBack = Options.CallBack;
 						SFlag = Options.SFlag;
+						Decimals = Options.Decimals or Options.Decimal or Options.Precision;
+						Precision = Options.Precision or Options.Decimals or Options.Decimal;
 						SettingsConfig = true;
 					}
 
@@ -5870,10 +5872,10 @@ function syde:Init(library)
 
 					function Options:Set(NewVal, skipSave)
 						local range = Options.Range[2] - Options.Range[1]
+						local decimalPlaces = Options.Decimals or Options.Decimal or Options.Precision or syde:DecimalPlaces(Options.Increment)
 
-						-- snap value to increment (same logic as UpdateSlider)
-						NewVal = math.floor((NewVal - Options.Range[1]) / Options.Increment + 0.5) * Options.Increment + Options.Range[1]
-						NewVal = syde:RoundTo(NewVal, syde:DecimalPlaces(Options.Increment))
+						NewVal = math.clamp(NewVal, Options.Range[1], Options.Range[2])
+						NewVal = syde:RoundTo(NewVal, decimalPlaces)
 
 						local sliderPosition = (NewVal - Options.Range[1]) / range
 
@@ -5892,9 +5894,6 @@ function syde:Init(library)
 							{Size = UDim2.new(0, 100, 1, 0)},
 							TweenInfo.new(0.85, Enum.EasingStyle.Quint)
 						)
-
-						-- detect decimal places from increment
-						local decimalPlaces = syde:DecimalPlaces(Options.Increment)
 
 						-- update display (decimal safe)
 						Slider.v.Text = string.format(
