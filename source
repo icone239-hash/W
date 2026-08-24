@@ -487,8 +487,75 @@ end
 ----------------------------------------------------------------
 
 
+-- Create a part binding for a GuiObject.
 function syde:BindFrame(frame, properties)
-	return {}
+	if binds[frame] then
+		return binds[frame].parts
+	end
+
+	local uid = GenUid()
+	local parts = {}
+	local f = Instance.new('Folder', root)
+	f.Name = frame.Name
+
+	local parents = {} -- construct hierarchy tree for rotation
+	do
+		local function add(child)
+			if child:IsA'GuiObject' then
+				parents[#parents + 1] = child
+				add(child.Parent)
+			end
+		end
+		add(frame)
+	end
+
+	local function UpdateOrientation(fetchProps)
+		local zIndex = 1 - 0.05*frame.ZIndex
+		-- the transparency inversion bug still surfaces when there's z-fighting
+		local tl, br = frame.AbsolutePosition, frame.AbsolutePosition + frame.AbsoluteSize
+		local tr, bl = Vector2.new(br.x, tl.y), Vector2.new(tl.x, br.y)
+		do
+			local rot = 0;
+			for _, v in ipairs(parents) do
+				rot = rot + v.Rotation
+			end
+			if rot ~= 0 and rot%180 ~= 0 then
+				local mid = tl:lerp(br, 0.5)
+				local s, c = math.sin(math.rad(rot)), math.cos(math.rad(rot))
+				local vec = tl
+				tl = Vector2.new(c*(tl.x - mid.x) - s*(tl.y - mid.y), s*(tl.x - mid.x) + c*(tl.y - mid.y)) + mid
+				tr = Vector2.new(c*(tr.x - mid.x) - s*(tr.y - mid.y), s*(tr.x - mid.x) + c*(tr.y - mid.y)) + mid
+				bl = Vector2.new(c*(bl.x - mid.x) - s*(bl.y - mid.y), s*(bl.x - mid.x) + c*(bl.y - mid.y)) + mid
+				br = Vector2.new(c*(br.x - mid.x) - s*(br.y - mid.y), s*(br.x - mid.x) + c*(br.y - mid.y)) + mid
+			end
+		end
+		DrawQuad(
+			camera:ScreenPointToRay(tl.x, tl.y, zIndex).Origin, 
+			camera:ScreenPointToRay(tr.x, tr.y, zIndex).Origin, 
+			camera:ScreenPointToRay(bl.x, bl.y, zIndex).Origin, 
+			camera:ScreenPointToRay(br.x, br.y, zIndex).Origin, 
+			parts
+		)
+		if fetchProps then
+			for _, pt in pairs(parts) do
+				pt.Parent = f
+			end
+			for propName, propValue in pairs(properties) do
+				for _, pt in pairs(parts) do
+					pt[propName] = propValue
+				end
+			end
+		end
+	end
+
+	UpdateOrientation(true)
+	RunService:BindToRenderStep(uid, 2000, UpdateOrientation)
+
+	binds[frame] = {
+		uid = uid;
+		parts = parts;
+	}
+	return binds[frame].parts
 end
 
 -- Applies the `properties` table to bound parts.
@@ -1122,7 +1189,63 @@ end
 local RunService = game:GetService("RunService")
 
 function syde:WiggleText(label)
-	return
+	if not label or not label:IsA("TextLabel") then return end
+	if not label.Text or label.Text == "" then return end
+
+	-- Remove old animation
+	if label:FindFirstChild("WiggleContainer") then
+		label.WiggleContainer:Destroy()
+	end
+
+	local container = Instance.new("Folder")
+	container.Name = "WiggleContainer"
+	container.Parent = label
+
+	-- Hide original label text
+	label.TextTransparency = 1
+
+	local baseText = label.Text:gsub("<.->", "") -- remove RichText tags
+	local fontFace = label.FontFace
+	local baseSize = label.TextSize
+	local textColor = label.TextColor3
+
+	local chars = {}
+	local xOffset = 0
+
+	-- Create a label for each character
+	for i = 1, #baseText do
+		local char = baseText:sub(i, i)
+		local charLabel = Instance.new("TextLabel")
+		charLabel.BackgroundTransparency = 1
+		charLabel.Text = char
+		charLabel.TextColor3 = textColor
+		charLabel.TextSize = baseSize
+		charLabel.FontFace = fontFace
+		charLabel.TextXAlignment = Enum.TextXAlignment.Left
+		charLabel.TextYAlignment = Enum.TextYAlignment.Center
+		charLabel.AnchorPoint = Vector2.new(0, 0.5)
+		charLabel.Position = UDim2.new(0, xOffset, 0.5, 0)
+		charLabel.Parent = container
+		charLabel.ZIndex = 99
+
+		xOffset += charLabel.TextBounds.X
+		table.insert(chars, charLabel)
+	end
+
+	-- Animate characters
+	local t = 0
+	local id = "Wiggle_" .. tostring(math.random(1, 999999))
+	RunService:BindToRenderStep(id, Enum.RenderPriority.First.Value, function(dt)
+		t += dt * 6
+		for i, charLabel in ipairs(chars) do
+			local offset = math.sin(t + i * 0.3) * 3 -- wiggle amplitude
+			charLabel.Position = UDim2.new(0, charLabel.Position.X.Offset, 0.5, offset)
+		end
+	end)
+
+	label.Destroying:Connect(function()
+		RunService:UnbindFromRenderStep(id)
+	end)
 end
 
 
@@ -2714,33 +2837,34 @@ function syde:Init(library)
 		QuickActions = library.QuickActions or false;
 	}
 
-	-- FPS tracking (zero overhead render FPS meter)
-	local frameCounter = 0
-	local lastFpsReset = os.clock()
-	local calculatedFps = 60
-
-	runservice.RenderStepped:Connect(function()
-		frameCounter += 1
-		local now = os.clock()
-		if now - lastFpsReset >= 0.5 then
-			calculatedFps = math.round(frameCounter / (now - lastFpsReset))
-			frameCounter = 0
-			lastFpsReset = now
-		end
-	end)
+	-- FPS tracking
+	local lastTime = tick()
+	local frames = 0
 
 	if mh then
-		task.spawn(function()
-			while mh do
-				task.wait(0.5)
-				local info = Minihome and Minihome:FindFirstChild("info")
-				if not info then break end
-
-				info.fps.Text = calculatedFps .. " FPS"
-
-				local hour = tonumber(os.date("%I"))
-				info.time.Text = hour .. os.date(":%M")
+		rs = RunService.RenderStepped:Connect(function()
+			-- stop cleanly if the watermark/minihome was hidden or destroyed
+			local info = Minihome and Minihome:FindFirstChild("info")
+			if not info then
+				if rs then rs:Disconnect() end
+				return
 			end
+
+			-- FPS
+			frames += 1
+			local now = tick()
+
+			if now - lastTime >= 1 then
+				local fps = math.floor(frames / (now - lastTime))
+				lastTime = now
+				frames = 0
+
+				info.fps.Text = fps .. " FPS"
+			end
+
+			-- Time → 8:45
+			local hour = tonumber(os.date("%I"))
+			info.time.Text = hour .. os.date(":%M")
 		end)
 
 
@@ -3095,7 +3219,7 @@ function syde:Init(library)
 		pointTemplate.Visible = false
 		lineTemplate.Visible = false
 
-		local UPDATE_INTERVAL = 2.0
+		local UPDATE_INTERVAL = 0.3
 		local MAX_POINTS = 15
 		local MAX_PING = 300
 
