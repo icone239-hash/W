@@ -1122,63 +1122,7 @@ end
 local RunService = game:GetService("RunService")
 
 function syde:WiggleText(label)
-	if not label or not label:IsA("TextLabel") then return end
-	if not label.Text or label.Text == "" then return end
-
-	-- Remove old animation
-	if label:FindFirstChild("WiggleContainer") then
-		label.WiggleContainer:Destroy()
-	end
-
-	local container = Instance.new("Folder")
-	container.Name = "WiggleContainer"
-	container.Parent = label
-
-	-- Hide original label text
-	label.TextTransparency = 1
-
-	local baseText = label.Text:gsub("<.->", "") -- remove RichText tags
-	local fontFace = label.FontFace
-	local baseSize = label.TextSize
-	local textColor = label.TextColor3
-
-	local chars = {}
-	local xOffset = 0
-
-	-- Create a label for each character
-	for i = 1, #baseText do
-		local char = baseText:sub(i, i)
-		local charLabel = Instance.new("TextLabel")
-		charLabel.BackgroundTransparency = 1
-		charLabel.Text = char
-		charLabel.TextColor3 = textColor
-		charLabel.TextSize = baseSize
-		charLabel.FontFace = fontFace
-		charLabel.TextXAlignment = Enum.TextXAlignment.Left
-		charLabel.TextYAlignment = Enum.TextYAlignment.Center
-		charLabel.AnchorPoint = Vector2.new(0, 0.5)
-		charLabel.Position = UDim2.new(0, xOffset, 0.5, 0)
-		charLabel.Parent = container
-		charLabel.ZIndex = 99
-
-		xOffset += charLabel.TextBounds.X
-		table.insert(chars, charLabel)
-	end
-
-	-- Animate characters
-	local t = 0
-	local id = "Wiggle_" .. tostring(math.random(1, 999999))
-	RunService:BindToRenderStep(id, Enum.RenderPriority.First.Value, function(dt)
-		t += dt * 6
-		for i, charLabel in ipairs(chars) do
-			local offset = math.sin(t + i * 0.3) * 3 -- wiggle amplitude
-			charLabel.Position = UDim2.new(0, charLabel.Position.X.Offset, 0.5, offset)
-		end
-	end)
-
-	label.Destroying:Connect(function()
-		RunService:UnbindFromRenderStep(id)
-	end)
+	return
 end
 
 
@@ -2775,29 +2719,18 @@ function syde:Init(library)
 	local frames = 0
 
 	if mh then
-		rs = RunService.RenderStepped:Connect(function()
-			-- stop cleanly if the watermark/minihome was hidden or destroyed
-			local info = Minihome and Minihome:FindFirstChild("info")
-			if not info then
-				if rs then rs:Disconnect() end
-				return
-			end
+		task.spawn(function()
+			while mh do
+				task.wait(1)
+				local info = Minihome and Minihome:FindFirstChild("info")
+				if not info then break end
 
-			-- FPS
-			frames += 1
-			local now = tick()
-
-			if now - lastTime >= 1 then
-				local fps = math.floor(frames / (now - lastTime))
-				lastTime = now
-				frames = 0
-
+				local fps = math.floor(workspace:GetRealPhysicsFPS())
 				info.fps.Text = fps .. " FPS"
-			end
 
-			-- Time → 8:45
-			local hour = tonumber(os.date("%I"))
-			info.time.Text = hour .. os.date(":%M")
+				local hour = tonumber(os.date("%I"))
+				info.time.Text = hour .. os.date(":%M")
+			end
 		end)
 
 
@@ -3152,7 +3085,7 @@ function syde:Init(library)
 		pointTemplate.Visible = false
 		lineTemplate.Visible = false
 
-		local UPDATE_INTERVAL = 0.3
+		local UPDATE_INTERVAL = 2.0
 		local MAX_POINTS = 15
 		local MAX_PING = 300
 
