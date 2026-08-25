@@ -196,7 +196,7 @@ function syde:DecimalPlaces(num)
 	local str = string.format("%.10f", tonumber(num) or 0)
 	str = str:gsub("0+$", "")
 	str = str:gsub("%.$", "")
-	local dot = string.find(str, "%.", 1, true)
+	local dot = string.find(str, ".", 1, true)
 	if not dot then
 		return 0
 	end
@@ -5679,11 +5679,15 @@ function syde:Init(library)
 
 					Options = {
 						Title = Options.Title or "Slider";
-						Increment = Options.Increment or 1;
+						Increment = Options.Step or Options.Increment or 1;
+						Step = Options.Step or Options.Increment or 1;
 						Range = Options.Range or {0, 100};
 						StarterValue = Options.StarterValue or 16;
 						CallBack = Options.CallBack;
 						SFlag = Options.SFlag;
+						Decimals = Options.Decimals or Options.Decimal or Options.Precision;
+						Decimal = Options.Decimal or Options.Decimals or Options.Precision;
+						Precision = Options.Precision or Options.Decimals or Options.Decimal;
 						SettingsConfig = true;
 					}
 
@@ -7965,11 +7969,15 @@ function syde:Init(library)
 
 				Options = {
 					Title = Options.Title or "Slider";
-					Increment = Options.Increment or 1;
+					Increment = Options.Step or Options.Increment or 1;
+					Step = Options.Step or Options.Increment or 1;
 					Range = Options.Range or {0, 100};
 					StarterValue = Options.StarterValue or 16;
 					CallBack = Options.CallBack;
 					Flag = Options.Flag;
+					Decimals = Options.Decimals or Options.Decimal or Options.Precision;
+					Decimal = Options.Decimal or Options.Decimals or Options.Precision;
+					Precision = Options.Precision or Options.Decimals or Options.Decimal;
 				}
 
 				Slider.Name = Options.Title
