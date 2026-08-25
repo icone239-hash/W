@@ -311,7 +311,13 @@ function syde:AttachSliderInput(Slider, Options)
 	-- re-render the label with the slider's current value
 	local function renderCurrent()
 		local val = tonumber(Options.StarterValue) or 0
-		local dp = (val % 1 ~= 0) and 1 or syde:DecimalPlaces(Options.Increment or 0.1)
+
+		local dp =
+			Options.Decimals
+			or Options.Decimal
+			or Options.Precision
+			or syde:DecimalPlaces(Options.Increment or Options.Step or 0.1)
+
 		renderValue(string.format("%." .. dp .. "f", val))
 	end
 
@@ -357,11 +363,20 @@ function syde:AttachSliderInput(Slider, Options)
 
 		if raw ~= "" and typed and typed >= low and typed <= high and Options.Set then
 			local stepInc = Options.Increment or Options.Step or 0.1
+
 			if stepInc > 0 then
 				typed = math.floor((typed - low) / stepInc + 0.5) * stepInc + low
-				typed = math.floor(typed * 10 + 0.5) / 10
+
+				local decimalPlaces =
+					Options.Decimals
+					or Options.Decimal
+					or Options.Precision
+					or syde:DecimalPlaces(stepInc)
+
+				typed = syde:RoundTo(typed, decimalPlaces)
 				typed = math.clamp(typed, low, high)
 			end
+
 			Options.StarterValue = typed
 			Options:Set(typed)
 			renderCurrent()
@@ -5664,13 +5679,11 @@ function syde:Init(library)
 
 					Options = {
 						Title = Options.Title or "Slider";
-						Increment = Options.Step or Options.Increment or 0.01;
+						Increment = Options.Increment or 1;
 						Range = Options.Range or {0, 100};
 						StarterValue = Options.StarterValue or 16;
 						CallBack = Options.CallBack;
 						SFlag = Options.SFlag;
-						Decimals = Options.Decimals or Options.Decimal or Options.Precision;
-						Precision = Options.Precision or Options.Decimals or Options.Decimal;
 						SettingsConfig = true;
 					}
 
@@ -5704,7 +5717,7 @@ function syde:Init(library)
 
 					syde:replayLoadTweens(Slider.slide.slideframe)
 
-					local decimalPlaces = Options.Decimals or Options.Decimal or Options.Precision or syde:DecimalPlaces(Options.Increment)
+					local decimalPlaces = syde:DecimalPlaces(Options.Increment)
 					Slider.v.Text = string.format("<font size='14'>%." .. decimalPlaces .. "f</font><font color='#434343'>/%." .. decimalPlaces .. "f</font>", Options.StarterValue, Options.Range[2])
 
 					local function BuildTicks(slide, options)
@@ -5807,8 +5820,7 @@ function syde:Init(library)
 							local range = Options.Range[2] - Options.Range[1]
 							local newValue = Options.Range[1] + sliderPosition * range
 							newValue = math.floor((newValue - Options.Range[1]) / Options.Increment + 0.5) * Options.Increment + Options.Range[1]
-							local decimalPlaces = Options.Decimals or Options.Decimal or Options.Precision or syde:DecimalPlaces(Options.Increment)
-							newValue = syde:RoundTo(newValue, decimalPlaces)
+							newValue = syde:RoundTo(newValue, syde:DecimalPlaces(Options.Increment))
 
 							-- Update the slider visual position
 							local snapPosition = (newValue - Options.Range[1]) / range
@@ -5816,6 +5828,7 @@ function syde:Init(library)
 
 
 							-- Update the displayed value
+							local decimalPlaces = syde:DecimalPlaces(Options.Increment)
 							Slider.v.Text = string.format("<font size='14'>%." .. decimalPlaces .. "f</font><font color='#434343'>/%." .. decimalPlaces .. "f</font>", newValue, Options.Range[2])
 
 
@@ -5872,10 +5885,10 @@ function syde:Init(library)
 
 					function Options:Set(NewVal, skipSave)
 						local range = Options.Range[2] - Options.Range[1]
-						local decimalPlaces = Options.Decimals or Options.Decimal or Options.Precision or syde:DecimalPlaces(Options.Increment)
 
-						NewVal = math.clamp(NewVal, Options.Range[1], Options.Range[2])
-						NewVal = syde:RoundTo(NewVal, decimalPlaces)
+						-- snap value to increment (same logic as UpdateSlider)
+						NewVal = math.floor((NewVal - Options.Range[1]) / Options.Increment + 0.5) * Options.Increment + Options.Range[1]
+						NewVal = syde:RoundTo(NewVal, syde:DecimalPlaces(Options.Increment))
 
 						local sliderPosition = (NewVal - Options.Range[1]) / range
 
@@ -5894,6 +5907,9 @@ function syde:Init(library)
 							{Size = UDim2.new(0, 100, 1, 0)},
 							TweenInfo.new(0.85, Enum.EasingStyle.Quint)
 						)
+
+						-- detect decimal places from increment
+						local decimalPlaces = syde:DecimalPlaces(Options.Increment)
 
 						-- update display (decimal safe)
 						Slider.v.Text = string.format(
