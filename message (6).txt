@@ -1,0 +1,1239 @@
+--[[
+    QUANTUM - Converted to Fluent UI Library
+    Website: QuantumRise.gg
+    Converted by: Antigravity
+]]
+
+local coregui = (gethui and gethui()) or game:GetService("CoreGui")
+local player = game:GetService("Players").LocalPlayer or game.Players.LocalPlayer
+local UIS = game:GetService("UserInputService")
+local rs = game:GetService("RunService")
+local ts = game:GetService("TweenService")
+local VIM = game:GetService("VirtualInputManager")
+
+-- ══════════════════════════════════════════════
+-- CLEAN BYPASS (Runs before UI loads)
+-- ══════════════════════════════════════════════
+local function removeAnticheat()
+    if player and player.Character then
+        for _, v in pairs(player.Character:GetDescendants()) do
+            if v:IsA("LocalScript") and string.lower(v.Name):find("anticheat") then
+                v:Destroy()
+            end
+        end
+    end
+end
+
+player.CharacterAdded:Connect(removeAnticheat)
+removeAnticheat()
+
+-- ══════════════════════════════════════════════
+-- LOAD FLUENT UI LIBRARY
+-- ══════════════════════════════════════════════
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+
+local Window = Fluent:CreateWindow({
+    Title = "QUANTUM",
+    SubTitle = "QuantumRise.gg",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.RightShift
+})
+
+local Tabs = {
+    Catching   = Window:AddTab({ Title = "Catching", Icon = "target" }),
+    Movement   = Window:AddTab({ Title = "Movement", Icon = "zap" }),
+    Automatics = Window:AddTab({ Title = "Automatics", Icon = "shield" }),
+    Settings   = Window:AddTab({ Title = "Settings", Icon = "settings" })
+}
+
+-- ══════════════════════════════════════════════
+-- LOCAL SETTINGS
+-- ══════════════════════════════════════════════
+local Settings = {
+    Magnet = false,
+    MagnetRange = 25,
+    VisualizeMags = false,
+    VisualShape = "Sphere",
+    AutoTuck = false,
+    AutoTuckSpeed = "Instant",
+    ResizeEnabled = false,
+    BallSize = 1,
+    PullEnabled = false,
+    PullRadius = 10,
+    PullStrength = 50,
+    PullVisuals = false,
+    ArmReachEnabled = false,
+    ArmSize = 1,
+    AutoRush = false,
+    AutoRushPredict = false,
+    AutoRushDelay = 0,
+    QuickTP = false,
+    QuickTPDist = 2,
+    BlockReach = false,
+    BlockSize = 5,
+    ShowBlockRange = false,
+    FreezeEnabled = false,
+    FreezeDuration = 0,
+    AutoCatch = false,
+    CatchRange = 4,
+    AutoSwat = false,
+    SwatRange = 4,
+    BallTrail = false,
+    BallTracer = false,
+    EndzoneTPEnabled = false,
+    KickerAimbot = false,
+    KickerAimbotHeight = 5,
+    PlayerESP = false,
+    GoalpostESP = false,
+    AntiJerseyTug = false,
+    AntiJerseyTugMode = "KeyPress",
+    AntiJerseyTugCooldown = 0.35,
+    RequireSwipeReady = false,
+    AntiJerseyTugDebug = false
+}
+
+local PlayerSettings = {
+    JumpEnabled = false,
+    JumpValue = 50,
+    SpeedEnabled = false,
+    SpeedValue = 16,
+    InfJump = false
+}
+
+local function JumpPowerToJumpHeight(jumpPower)
+    local jp = tonumber(jumpPower) or 50
+    return (jp * jp) / (2 * workspace.Gravity)
+end
+
+local function ApplyJumpFromPower(hum, jumpPower)
+    if not hum then return end
+    hum.UseJumpPower = false
+    hum.JumpHeight = JumpPowerToJumpHeight(jumpPower)
+end
+
+game:GetService("UserInputService").JumpRequest:Connect(function()
+    if PlayerSettings.InfJump then
+        local char = game.Players.LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+-- ══════════════════════════════════════════════
+-- ⚡ COMPLETE QUANTUM RUNTIME ENGINE
+-- ══════════════════════════════════════════════
+local hitboxes = {}
+local activeBalls = {}
+local visualFolder = nil
+
+local function isVisualPart(obj)
+    return obj and (obj.Name == "QuantumMagnetVisual" or obj:GetAttribute("QuantumVisual") == true)
+end
+
+local function ballPartFrom(inst)
+    if not inst or isVisualPart(inst) then
+        return nil
+    end
+    if inst:IsA("BasePart") then
+        return inst
+    end
+    local handle = inst:FindFirstChild("Handle")
+    if handle and handle:IsA("BasePart") and not isVisualPart(handle) then
+        return handle
+    end
+    local named = inst:FindFirstChild("Football") or inst:FindFirstChild("Ball")
+    if named and named:IsA("BasePart") and not isVisualPart(named) then
+        return named
+    end
+    if inst:IsA("Model") and inst.PrimaryPart and not isVisualPart(inst.PrimaryPart) then
+        return inst.PrimaryPart
+    end
+    local part = inst:FindFirstChildWhichIsA("BasePart", true)
+    if part and not isVisualPart(part) then
+        return part
+    end
+    return nil
+end
+
+local function nameLooksLikeBall(name)
+    local n = string.lower(name or "")
+    return n == "football"
+        or n == "ball"
+        or n == "handle"
+        or n == "clientfootballvisual"
+        or n == "ghostfootball"
+        or string.find(n, "football", 1, true) ~= nil
+end
+
+local function isBall(obj)
+    if not obj or not obj:IsA("BasePart") then
+        return false
+    end
+    if isVisualPart(obj) then
+        return false
+    end
+    if obj.Parent and obj.Parent.Name == "QuantumMagVisuals" then
+        return false
+    end
+    if obj:FindFirstAncestorOfClass("Accessory") or obj:FindFirstAncestorOfClass("Accoutrement") then
+        return false
+    end
+
+    if obj:GetAttribute("ClientVisual") == true then
+        return true
+    end
+
+    local n = string.lower(obj.Name)
+    if n == "clientfootballvisual" or n == "ghostfootball" then
+        return true
+    end
+
+    local ancestor = obj
+    while ancestor and ancestor ~= workspace do
+        local an = string.lower(ancestor.Name)
+        if an == "clientfootballvisual" or an == "ghostfootball" then
+            return true
+        end
+        if ancestor:GetAttribute("ClientVisual") == true then
+            return true
+        end
+        ancestor = ancestor.Parent
+    end
+
+    local folder = workspace:FindFirstChild("Footballs")
+    if folder and obj:IsDescendantOf(folder) then
+        return true
+    end
+
+    if obj.CollisionGroup == "Footballs" then
+        return true
+    end
+
+    local parent = obj.Parent
+    if parent then
+        if parent:IsA("Tool") and nameLooksLikeBall(parent.Name) then
+            return true
+        end
+        if parent:IsA("Model") and nameLooksLikeBall(parent.Name) then
+            return true
+        end
+    end
+
+    if n == "football" or n == "ball" then
+        return true
+    end
+
+    return false
+end
+
+local function addBallPart(part, into)
+    if part and part:IsA("BasePart") and not isVisualPart(part) then
+        into[part] = true
+        activeBalls[part] = true
+    end
+end
+
+local function collectLiveBalls()
+    local found = {}
+
+    for _, child in ipairs(workspace:GetChildren()) do
+        if isVisualPart(child) or child.Name == "QuantumMagVisuals" then
+            continue
+        end
+        local n = string.lower(child.Name)
+        if n == "clientfootballvisual" or n == "ghostfootball" or child:GetAttribute("ClientVisual") == true then
+            addBallPart(ballPartFrom(child), found)
+        elseif n == "football" or n == "ball" then
+            addBallPart(ballPartFrom(child), found)
+        end
+    end
+
+    local folder = workspace:FindFirstChild("Footballs")
+    if folder then
+        for _, child in ipairs(folder:GetChildren()) do
+            addBallPart(ballPartFrom(child), found)
+        end
+    end
+
+    local gs = game:GetService("ReplicatedStorage"):FindFirstChild("GameSettings")
+    local gameBall = gs and gs:FindFirstChild("GameBall")
+    if gameBall and gameBall:IsA("ObjectValue") and gameBall.Value then
+        addBallPart(ballPartFrom(gameBall.Value), found)
+    end
+
+    for _, plr in ipairs(game:GetService("Players"):GetPlayers()) do
+        local char = plr.Character
+        if char then
+            for _, child in ipairs(char:GetChildren()) do
+                if nameLooksLikeBall(child.Name) then
+                    addBallPart(ballPartFrom(child), found)
+                end
+            end
+        end
+    end
+
+    return found
+end
+
+local function ballHeldByPlayer(part)
+    if not part then
+        return false
+    end
+    local inst = part
+    while inst and inst ~= workspace do
+        if inst:IsA("Tool") then
+            local char = inst.Parent
+            if char and game:GetService("Players"):GetPlayerFromCharacter(char) then
+                return true
+            end
+        end
+        if inst:IsA("Model") and game:GetService("Players"):GetPlayerFromCharacter(inst) then
+            return true
+        end
+        inst = inst.Parent
+    end
+    return false
+end
+
+local function getVisualTargets(live)
+    local flying = {}
+    local grounded = {}
+    for part in pairs(live) do
+        if ballHeldByPlayer(part) then
+            continue
+        end
+        local n = string.lower(part.Name)
+        local flyingName = n == "clientfootballvisual" or n == "ghostfootball"
+        local ancestor = part
+        while ancestor and ancestor ~= workspace do
+            local an = string.lower(ancestor.Name)
+            if an == "clientfootballvisual" or an == "ghostfootball" or ancestor:GetAttribute("ClientVisual") == true then
+                flyingName = true
+                break
+            end
+            ancestor = ancestor.Parent
+        end
+        if flyingName then
+            flying[part] = true
+        else
+            grounded[part] = true
+        end
+    end
+    if next(flying) then
+        return flying
+    end
+    return grounded
+end
+
+local function getVisualFolder()
+    if visualFolder and visualFolder.Parent then
+        return visualFolder
+    end
+    visualFolder = workspace:FindFirstChild("QuantumMagVisuals")
+    if not visualFolder then
+        visualFolder = Instance.new("Folder")
+        visualFolder.Name = "QuantumMagVisuals"
+        visualFolder.Parent = workspace
+    end
+    return visualFolder
+end
+
+workspace.DescendantAdded:Connect(function(obj)
+    if isVisualPart(obj) then
+        return
+    end
+    task.defer(function()
+        if isBall(obj) then
+            activeBalls[obj] = true
+        else
+            local part = ballPartFrom(obj)
+            if part and isBall(part) then
+                activeBalls[part] = true
+            end
+        end
+    end)
+end)
+
+workspace.DescendantRemoving:Connect(function(obj)
+    if not activeBalls[obj] then
+        return
+    end
+    task.defer(function()
+        if obj.Parent then
+            return
+        end
+        activeBalls[obj] = nil
+        if hitboxes[obj] then
+            pcall(function()
+                hitboxes[obj]:Destroy()
+            end)
+            hitboxes[obj] = nil
+        end
+    end)
+end)
+
+collectLiveBalls()
+
+local function getArms(char)
+    local l = char:FindFirstChild("Left Arm") or char:FindFirstChild("LeftHand") or char:FindFirstChild("LeftLowerArm") or char:FindFirstChild("LeftUpperArm")
+    local r = char:FindFirstChild("Right Arm") or char:FindFirstChild("RightHand") or char:FindFirstChild("RightLowerArm") or char:FindFirstChild("RightUpperArm")
+    return l, r
+end
+
+local touching = {}
+
+local function magBall(ball)
+    if touching[ball] then return end
+    touching[ball] = true
+
+    task.spawn(function()
+        while Settings.Magnet and ball.Parent and player.Character do
+            local left, right = getArms(player.Character)
+            local root = player.Character:FindFirstChild("HumanoidRootPart")
+
+            if not root or not left or not right then
+                break
+            end
+
+            local leftDist = (left.Position - ball.Position).Magnitude
+            local rightDist = (right.Position - ball.Position).Magnitude
+            local rootDist = (root.Position - ball.Position).Magnitude
+            local closestDist = math.min(leftDist, rightDist, rootDist)
+
+            if closestDist > Settings.MagnetRange then
+                task.wait()
+                continue
+            end
+
+            for _ = 1, 8 do
+                firetouchinterest(left, ball, 0)
+                firetouchinterest(right, ball, 0)
+                firetouchinterest(root, ball, 0)
+
+                firetouchinterest(left, ball, 1)
+                firetouchinterest(right, ball, 1)
+                firetouchinterest(root, ball, 1)
+            end
+
+            task.wait()
+        end
+
+        touching[ball] = nil
+    end)
+end
+
+local function findPossessor()
+    for _, p in pairs(game.Players:GetPlayers()) do
+        local character = p.Character
+        if not character then continue end
+        if not character:FindFirstChildWhichIsA("Tool") then continue end
+        return character
+    end
+end
+
+local function ballPivot(ball)
+    if ball.GetPivot then
+        return ball:GetPivot()
+    end
+    return ball.CFrame
+end
+
+local function applyVisualShape(hitbox)
+    local radius = tonumber(Settings.MagnetRange) or 2.2
+    local diameter = math.max(radius * 2, 1)
+    local shape = Enum.PartType.Ball
+    if Settings.VisualShape == "Box" then
+        shape = Enum.PartType.Block
+    elseif Settings.VisualShape == "Cylinder" then
+        shape = Enum.PartType.Cylinder
+    end
+    if hitbox.Shape ~= shape then
+        hitbox.Shape = shape
+    end
+    local size = hitbox.Size
+    if math.abs(size.X - diameter) > 0.05 or math.abs(size.Y - diameter) > 0.05 or math.abs(size.Z - diameter) > 0.05 then
+        hitbox.Size = Vector3.new(diameter, diameter, diameter)
+    end
+end
+
+local function createOrUpdateHitbox(ball)
+    if not ball or not ball.Parent then
+        return
+    end
+    local hitbox = hitboxes[ball]
+    if not hitbox or not hitbox.Parent then
+        hitbox = Instance.new("Part")
+        hitbox.Name = "QuantumMagnetVisual"
+        hitbox:SetAttribute("QuantumVisual", true)
+        hitbox.Anchored = true
+        hitbox.Massless = true
+        hitbox.CanCollide = false
+        hitbox.CanTouch = false
+        hitbox.CanQuery = false
+        hitbox.CastShadow = false
+        hitbox.EnableFluidForces = false
+        hitbox.Material = Enum.Material.ForceField
+        hitbox.Color = Color3.fromRGB(235, 35, 45)
+        hitbox.Transparency = 0.45
+        applyVisualShape(hitbox)
+        hitbox.CFrame = ball.CFrame
+        hitbox.Parent = getVisualFolder()
+        hitboxes[ball] = hitbox
+    else
+        applyVisualShape(hitbox)
+    end
+end
+
+local lastVisualRebuild = 0
+local visualConn = nil
+
+local function rebuildVisualTargets()
+    local live = collectLiveBalls()
+    local targets = getVisualTargets(live)
+    local seen = {}
+    for ball in pairs(targets) do
+        seen[ball] = true
+        createOrUpdateHitbox(ball)
+    end
+    for ball, hb in pairs(hitboxes) do
+        if not seen[ball] then
+            if hb then
+                pcall(function()
+                    hb:Destroy()
+                end)
+            end
+            hitboxes[ball] = nil
+        end
+    end
+end
+
+local function clearAllHitboxes()
+    for ball, hb in pairs(hitboxes) do
+        if hb then pcall(function() hb:Destroy() end) end
+        hitboxes[ball] = nil
+    end
+end
+
+local function syncMagnetVisuals()
+    if not Settings.VisualizeMags then
+        if next(hitboxes) then
+            clearAllHitboxes()
+        end
+        return
+    end
+    local now = os.clock()
+    if now - lastVisualRebuild >= 0.15 then
+        lastVisualRebuild = now
+        rebuildVisualTargets()
+    end
+    for ball, hb in pairs(hitboxes) do
+        if ball.Parent and hb and hb.Parent then
+            hb.CFrame = ball.CFrame
+        end
+    end
+end
+
+local function stopMagnetVisuals()
+    if visualConn then
+        visualConn:Disconnect()
+        visualConn = nil
+    end
+    lastVisualRebuild = 0
+    clearAllHitboxes()
+end
+
+local function startMagnetVisuals()
+    if visualConn then
+        return
+    end
+    lastVisualRebuild = 0
+    rebuildVisualTargets()
+    visualConn = rs.Heartbeat:Connect(syncMagnetVisuals)
+end
+
+-- AutoRush Loop
+task.spawn(function()
+    local log = {}
+    while true do
+        task.wait(1/30)
+        if not Settings.AutoRush then log = {} continue end
+        local possessor = findPossessor()
+        local character = player.Character
+        local humanoid = character and character:FindFirstChild("Humanoid")
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        if not hrp or not humanoid or not possessor or not possessor:FindFirstChild("HumanoidRootPart") then
+            log = {} continue
+        end
+        log[#log + 1] = possessor.HumanoidRootPart.Position
+        local delayedPosition = log[math.max(#log - math.round(Settings.AutoRushDelay / (1/30)), 1)]
+        if delayedPosition then
+            local timeToMoveTo = (hrp.Position - delayedPosition).Magnitude / 20
+            local predictedPosition = delayedPosition + (possessor.Humanoid.MoveDirection * timeToMoveTo * 20)
+            humanoid:MoveTo(Settings.AutoRushPredict and predictedPosition or delayedPosition)
+        end
+    end
+end)
+
+-- Main Stepped Loop
+rs.Stepped:Connect(function()
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum  = char and char:FindFirstChild("Humanoid")
+    if not char or not root then return end
+
+    local blockPart = char:FindFirstChild("BlockPart")
+    if blockPart then
+        if Settings.BlockReach then
+            blockPart.Size = Vector3.new(Settings.BlockSize, Settings.BlockSize, Settings.BlockSize)
+            blockPart.Transparency = Settings.ShowBlockRange and 0.5 or 1
+        else
+            blockPart.Size = Vector3.new(0.75, 5, 1.5)
+            blockPart.Transparency = 1
+        end
+    end
+
+    if Settings.ArmReachEnabled then
+        local l, r = getArms(char)
+        if l and r then
+            local newSize = Vector3.new(Settings.ArmSize, Settings.ArmSize, Settings.ArmSize)
+            l.Size = newSize
+            r.Size = newSize
+        end
+    end
+
+    if Settings.Magnet or Settings.ResizeEnabled then
+        local live = collectLiveBalls()
+        for ball in pairs(live) do
+            if Settings.Magnet then
+                magBall(ball)
+            end
+            if Settings.ResizeEnabled then
+                ball.Size = Vector3.new(Settings.BallSize, Settings.BallSize, Settings.BallSize)
+                ball.CanCollide = false
+            end
+        end
+        for ball in pairs(activeBalls) do
+            if not ball.Parent then
+                activeBalls[ball] = nil
+            end
+        end
+    end
+
+    if hum then
+        if PlayerSettings.SpeedEnabled then
+            hum.WalkSpeed = PlayerSettings.SpeedValue
+        end
+        if PlayerSettings.JumpEnabled then
+            ApplyJumpFromPower(hum, PlayerSettings.JumpValue)
+        end
+    end
+end)
+
+-- Heartbeat Secondary Lock
+rs.Heartbeat:Connect(function()
+    local char = player.Character
+    local hum = char and char:FindFirstChild("Humanoid")
+    if hum then
+        if PlayerSettings.SpeedEnabled and hum.WalkSpeed ~= PlayerSettings.SpeedValue then
+            hum.WalkSpeed = PlayerSettings.SpeedValue
+        end
+        if PlayerSettings.JumpEnabled then
+            local expectedJH = JumpPowerToJumpHeight(PlayerSettings.JumpValue)
+            if hum.UseJumpPower or math.abs(hum.JumpHeight - expectedJH) > 0.01 then
+                ApplyJumpFromPower(hum, PlayerSettings.JumpValue)
+            end
+        end
+    end
+end)
+
+-- Auto Catch & Swat
+local function checkAutomation()
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    for _, football in pairs(workspace:GetChildren()) do
+        if (football.Name == "Football" or football.Name == "Ball") then
+            local dist = (football.Position - char.HumanoidRootPart.Position).Magnitude
+            if Settings.AutoCatch and dist <= Settings.CatchRange then
+                local hit = char:FindFirstChild("Hitbox")
+                if hit and hit:FindFirstChild("RemoteEvent") then hit.RemoteEvent:FireServer("catch") end
+            end
+            if Settings.AutoSwat and dist <= Settings.SwatRange then
+                local hit = char:FindFirstChild("Hitbox")
+                if hit and hit:FindFirstChild("RemoteEvent") then hit.RemoteEvent:FireServer({{"pbu", Vector3.new(1.8,1.3,4.6)}}) end
+            end
+        end
+    end
+end
+rs.RenderStepped:Connect(function()
+    if Settings.AutoCatch or Settings.AutoSwat then
+        checkAutomation()
+    end
+end)
+
+-- ══════════════════════════════════════════════
+-- AUTO TUCK ENGINE
+-- ══════════════════════════════════════════════
+local tuckEvent = nil
+pcall(function()
+    tuckEvent = game:GetService("ReplicatedStorage")
+        :WaitForChild("GamePackages", 5)
+        :WaitForChild("Knit", 5)
+        :WaitForChild("Services", 5)
+        :WaitForChild("FootballService", 5)
+        :WaitForChild("RE", 5)
+        :WaitForChild("Event", 5)
+end)
+
+local tucked = false
+local missingSince = nil
+
+local function checkFootball()
+    local playerModel = player.Character or workspace:FindFirstChild(player.Name)
+    if not playerModel then return end
+    local football = playerModel:FindFirstChild("Football", true)
+    if football then
+        missingSince = nil
+        if not tucked then
+            tucked = true
+            local delayTime = 0
+            if Settings.AutoTuckSpeed == "Smooth" then delayTime = 0.1
+            elseif Settings.AutoTuckSpeed == "Delayed" then delayTime = 0.3 end
+            task.spawn(function()
+                if delayTime > 0 then task.wait(delayTime) end
+                if tuckEvent then
+                    tuckEvent:FireServer("Tuck")
+                else
+                    pcall(function()
+                        game:GetService("ReplicatedStorage").GamePackages.Knit.Services.FootballService.RE.Event:FireServer("Tuck")
+                    end)
+                end
+            end)
+        end
+    else
+        if not missingSince then missingSince = os.clock() end
+        if os.clock() - missingSince >= 0.3 then tucked = false end
+    end
+end
+
+task.spawn(function()
+    while task.wait(0.03) do
+        if Settings.AutoTuck then
+            checkFootball()
+        else
+            tucked = false
+            missingSince = nil
+        end
+    end
+end)
+
+-- Humanoid Property Lock
+local defaultWS, defaultJP, defaultUseJP, defaultJH = nil, nil, nil, nil
+
+local function lockHumanoidProperties(char)
+    if not char then return end
+    local hum = char:WaitForChild("Humanoid", 4)
+    if not hum then return end
+    if defaultWS == nil or defaultWS == 0 then defaultWS = hum.WalkSpeed end
+    if defaultJP == nil or defaultJP == 0 then defaultJP = hum.JumpPower end
+    if defaultUseJP == nil then defaultUseJP = hum.UseJumpPower end
+    if defaultJH == nil or defaultJH == 0 then defaultJH = hum.JumpHeight end
+    hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+        if PlayerSettings.SpeedEnabled and hum.WalkSpeed ~= PlayerSettings.SpeedValue then
+            hum.WalkSpeed = PlayerSettings.SpeedValue
+        end
+    end)
+    hum:GetPropertyChangedSignal("JumpHeight"):Connect(function()
+        if PlayerSettings.JumpEnabled then
+            local expected = JumpPowerToJumpHeight(PlayerSettings.JumpValue)
+            if math.abs(hum.JumpHeight - expected) > 0.01 then
+                ApplyJumpFromPower(hum, PlayerSettings.JumpValue)
+            end
+        end
+    end)
+    hum:GetPropertyChangedSignal("UseJumpPower"):Connect(function()
+        if PlayerSettings.JumpEnabled and hum.UseJumpPower then
+            hum.UseJumpPower = false
+        end
+    end)
+end
+
+if player.Character then lockHumanoidProperties(player.Character) end
+player.CharacterAdded:Connect(lockHumanoidProperties)
+
+-- ══════════════════════════════════════════════
+-- RMB MOUSE LOCK ENGINE
+-- ══════════════════════════════════════════════
+local rmbHeld = false
+local rmbEnabled = false
+
+local function syncMouseBehavior()
+    if not rmbEnabled then return end
+    if UIS.MouseBehavior == Enum.MouseBehavior.LockCenter then return end
+    local desired = if rmbHeld
+        then Enum.MouseBehavior.LockCurrentPosition
+        else Enum.MouseBehavior.Default
+    if UIS.MouseBehavior ~= desired then
+        UIS.MouseBehavior = desired
+    end
+end
+
+UIS.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        rmbHeld = true
+        syncMouseBehavior()
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        rmbHeld = false
+        syncMouseBehavior()
+    end
+end)
+
+UIS:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
+    task.defer(syncMouseBehavior)
+end)
+
+-- ══════════════════════════════════════════════
+-- 👕 ANTI JERSEY TUG ENGINE
+-- ══════════════════════════════════════════════
+local AutoSwipeCFG = {
+    Enabled = false,
+    Mode = "KeyPress",
+    Cooldown = 0.35,
+    RequireSwipeReady = false,
+    Debug = false,
+}
+
+local autoSwipeState = {
+    lastBreak = 0,
+    hitboxEvent = nil,
+    hitbox = nil,
+    char = nil,
+    conn = nil,
+    wasTugged = false,
+}
+
+local TUG_NAMES = { "JerseyTugging", "TugRole", "SwipeBreakReady" }
+
+local function readTugBool(inst, name)
+    if not inst then return nil end
+    local child = inst:FindFirstChild(name)
+    if child and child:IsA("BoolValue") then return child.Value end
+    local attr = inst:GetAttribute(name)
+    if attr ~= nil then return attr == true end
+    return nil
+end
+
+local function readTugString(inst, name)
+    if not inst then return nil end
+    local child = inst:FindFirstChild(name)
+    if child and child:IsA("StringValue") then return child.Value end
+    local attr = inst:GetAttribute(name)
+    if attr ~= nil then return tostring(attr) end
+    return nil
+end
+
+local function getHitboxEvent()
+    local RS = game:GetService("ReplicatedStorage")
+    local ok, ev = pcall(function()
+        return RS:WaitForChild("GamePackages", 8):WaitForChild("Knit"):WaitForChild("Services"):WaitForChild("HitboxService"):WaitForChild("RE"):WaitForChild("Event")
+    end)
+    if ok and ev and ev:IsA("RemoteEvent") then return ev end
+    return nil
+end
+
+local function getHitbox(char)
+    if not char then return nil end
+    return char:FindFirstChild("Hitbox") or char:WaitForChild("Hitbox", 5)
+end
+
+local function isTugged(hitbox)
+    if not hitbox then return false end
+    local tugging = readTugBool(hitbox, "JerseyTugging")
+    local tugRole = readTugString(hitbox, "TugRole")
+    local tugged = tugging == true and tugRole == "Tugged"
+    if not tugged then return false end
+    if AutoSwipeCFG.RequireSwipeReady or Settings.RequireSwipeReady then
+        local ready = readTugBool(hitbox, "SwipeBreakReady")
+        if ready == false then return false end
+    end
+    return true
+end
+
+local function fireSwipeRemote()
+    if not autoSwipeState.hitboxEvent then autoSwipeState.hitboxEvent = getHitboxEvent() end
+    if not autoSwipeState.hitboxEvent then return false end
+    return pcall(function() autoSwipeState.hitboxEvent:FireServer("Swipe Break") end)
+end
+
+local function pressSwipeF()
+    return pcall(function()
+        VIM:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+        VIM:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+    end)
+end
+
+local function autoSwipeDbg(...)
+    if AutoSwipeCFG.Debug or Settings.AntiJerseyTugDebug then
+        print("[AntiJerseyTug]", ...)
+    end
+end
+
+local function trySwipeBreak()
+    if not (AutoSwipeCFG.Enabled or Settings.AntiJerseyTug) then return end
+    local cooldown = Settings.AntiJerseyTugCooldown or AutoSwipeCFG.Cooldown
+    if tick() - autoSwipeState.lastBreak < cooldown then return end
+    local tuggedNow = isTugged(autoSwipeState.hitbox)
+    if tuggedNow and not autoSwipeState.wasTugged then
+        autoSwipeDbg("tugged detected | role =", readTugString(autoSwipeState.hitbox, "TugRole"), "| ready =", readTugBool(autoSwipeState.hitbox, "SwipeBreakReady"))
+    end
+    autoSwipeState.wasTugged = tuggedNow
+    if not tuggedNow then return end
+
+    local mode = Settings.AntiJerseyTugMode or AutoSwipeCFG.Mode
+    local ok = false
+    if mode == "KeyPress" then ok = pressSwipeF()
+    elseif mode == "Remote" then ok = fireSwipeRemote()
+    elseif mode == "Both" then ok = pressSwipeF() or fireSwipeRemote() end
+
+    if ok then autoSwipeState.lastBreak = tick() end
+end
+
+local function hookSwipeSignal(inst, name)
+    if not inst then return end
+    local child = inst:FindFirstChild(name)
+    if child and (child:IsA("BoolValue") or child:IsA("StringValue")) then
+        child.Changed:Connect(trySwipeBreak)
+    end
+    pcall(function() inst:GetAttributeChangedSignal(name):Connect(trySwipeBreak) end)
+end
+
+local function bindSwipeChar(char)
+    if autoSwipeState.conn then autoSwipeState.conn:Disconnect(); autoSwipeState.conn = nil end
+    autoSwipeState.char = char
+    autoSwipeState.hitbox = getHitbox(char)
+    autoSwipeState.hitboxEvent = getHitboxEvent()
+    autoSwipeState.wasTugged = false
+    if not autoSwipeState.hitbox then return end
+
+    for _, name in ipairs(TUG_NAMES) do
+        hookSwipeSignal(autoSwipeState.hitbox, name)
+    end
+
+    autoSwipeState.hitbox.ChildAdded:Connect(function(child)
+        if table.find(TUG_NAMES, child.Name) then
+            hookSwipeSignal(autoSwipeState.hitbox, child.Name)
+        end
+    end)
+
+    autoSwipeState.conn = rs.Heartbeat:Connect(trySwipeBreak)
+end
+
+autoSwipeState.hitboxEvent = getHitboxEvent()
+player.CharacterAdded:Connect(bindSwipeChar)
+if player.Character then task.defer(bindSwipeChar, player.Character) end
+
+getgenv().AutoSwipeMode = function(mode)
+    if mode ~= "Remote" and mode ~= "KeyPress" and mode ~= "Both" then warn('Use "KeyPress", "Remote", or "Both"') return end
+    AutoSwipeCFG.Mode = mode; Settings.AntiJerseyTugMode = mode
+    print("[AntiJerseyTug] mode ->", mode)
+end
+getgenv().AutoSwipeEnabled = function(on)
+    AutoSwipeCFG.Enabled = on ~= false; Settings.AntiJerseyTug = AutoSwipeCFG.Enabled
+    print("[AntiJerseyTug] enabled ->", AutoSwipeCFG.Enabled)
+end
+getgenv().AutoSwipeDebug = function(on)
+    AutoSwipeCFG.Debug = on ~= false; Settings.AntiJerseyTugDebug = AutoSwipeCFG.Debug
+    print("[AntiJerseyTug] debug ->", AutoSwipeCFG.Debug)
+end
+getgenv().AutoSwipeStatus = function()
+    local hb = autoSwipeState.hitbox
+    if not hb and player.Character then hb = player.Character:FindFirstChild("Hitbox") end
+    if not hb then warn("[AntiJerseyTug] no Hitbox bound yet") return end
+    print("[AntiJerseyTug] path:", hb:GetFullName())
+    print("  JerseyTugging   =", readTugBool(hb, "JerseyTugging"))
+    print("  TugRole         =", readTugString(hb, "TugRole"))
+    print("  SwipeBreakReady =", readTugBool(hb, "SwipeBreakReady"))
+    print("  isTugged        =", isTugged(hb))
+    print("  mode            =", Settings.AntiJerseyTugMode or AutoSwipeCFG.Mode)
+end
+
+-- ══════════════════════════════════════════════
+-- 1. CATCHING TAB (Fluent)
+-- ══════════════════════════════════════════════
+Tabs.Catching:AddSection("Magnet")
+
+local MagToggle = Tabs.Catching:AddToggle("MagnetEnabled", { Title = "Magnet Enabled", Default = false })
+MagToggle:OnChanged(function(v)
+    Settings.Magnet = v
+    Fluent:Notify({ Title = "QUANTUM", Content = "Magnet: " .. (v and "On" or "Off"), Duration = 2 })
+end)
+
+Tabs.Catching:AddKeybind("MagnetKeybind", {
+    Title = "Magnet Keybind",
+    Mode = "Toggle",
+    Default = "None",
+    Callback = function(v)
+        MagToggle:SetValue(v)
+    end
+})
+
+local MagSlider = Tabs.Catching:AddSlider("MagnetRange", {
+    Title = "Magnet Range",
+    Description = "Range in studs",
+    Default = 2.2,
+    Min = 1,
+    Max = 100,
+    Rounding = 1,
+    Callback = function(v)
+        Settings.MagnetRange = v
+    end
+})
+
+local VisToggle = Tabs.Catching:AddToggle("VisualizeMags", { Title = "Visuals (On Ball)", Default = false })
+VisToggle:OnChanged(function(v)
+    Settings.VisualizeMags = v
+    if v then
+        startMagnetVisuals()
+    else
+        stopMagnetVisuals()
+    end
+    Fluent:Notify({ Title = "QUANTUM", Content = "Mag Visuals: " .. (v and "On" or "Off"), Duration = 2 })
+end)
+
+Tabs.Catching:AddKeybind("VisualsKeybind", {
+    Title = "Visuals Keybind",
+    Mode = "Toggle",
+    Default = "None",
+    Callback = function(v)
+        VisToggle:SetValue(v)
+    end
+})
+
+local ShapeDropdown = Tabs.Catching:AddDropdown("VisualShape", {
+    Title = "Visual Shape",
+    Values = {"Sphere", "Box", "Cylinder"},
+    Multi = false,
+    Default = "Sphere",
+    Callback = function(v)
+        Settings.VisualShape = v
+    end
+})
+
+Tabs.Catching:AddSection("Auto Tuck")
+
+local TuckToggle = Tabs.Catching:AddToggle("AutoTuck", { Title = "Auto Tuck", Default = false })
+TuckToggle:OnChanged(function(v)
+    Settings.AutoTuck = v
+    Fluent:Notify({ Title = "QUANTUM", Content = "Auto Tuck: " .. (v and "On" or "Off"), Duration = 2 })
+end)
+
+Tabs.Catching:AddKeybind("AutoTuckKeybind", {
+    Title = "Auto Tuck Keybind",
+    Mode = "Toggle",
+    Default = "None",
+    Callback = function(v)
+        TuckToggle:SetValue(v)
+    end
+})
+
+Tabs.Catching:AddDropdown("AutoTuckSpeed", {
+    Title = "Auto Tuck Speed",
+    Values = {"Instant", "Smooth", "Delayed"},
+    Multi = false,
+    Default = "Instant",
+    Callback = function(v) Settings.AutoTuckSpeed = v end
+})
+
+-- ══════════════════════════════════════════════
+-- 2. MOVEMENT TAB (Fluent)
+-- ══════════════════════════════════════════════
+Tabs.Movement:AddSection("WalkSpeed")
+
+local SpeedToggle = Tabs.Movement:AddToggle("EnableWalkSpeed", { Title = "Enable WalkSpeed", Default = false })
+SpeedToggle:OnChanged(function(v)
+    PlayerSettings.SpeedEnabled = v
+    local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+    if hum then
+        if v then hum.WalkSpeed = PlayerSettings.SpeedValue
+        else hum.WalkSpeed = (defaultWS and defaultWS > 0) and defaultWS or 16 end
+    end
+    Fluent:Notify({ Title = "QUANTUM", Content = "WalkSpeed: " .. (v and "On" or "Off"), Duration = 2 })
+end)
+
+Tabs.Movement:AddKeybind("WalkSpeedKeybind", {
+    Title = "WalkSpeed Keybind",
+    Mode = "Toggle",
+    Default = "None",
+    Callback = function(v)
+        SpeedToggle:SetValue(v)
+    end
+})
+
+Tabs.Movement:AddSlider("WalkSpeedVal", {
+    Title = "WalkSpeed",
+    Default = 16,
+    Min = 16,
+    Max = 250,
+    Rounding = 1,
+    Callback = function(v)
+        PlayerSettings.SpeedValue = v
+        if PlayerSettings.SpeedEnabled then
+            local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+            if hum then hum.WalkSpeed = v end
+        end
+    end
+})
+
+Tabs.Movement:AddSection("JumpPower")
+
+local JumpToggle = Tabs.Movement:AddToggle("EnableJumpPower", { Title = "Enable JumpPower", Default = false })
+JumpToggle:OnChanged(function(v)
+    PlayerSettings.JumpEnabled = v
+    local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+    if hum then
+        if v then
+            ApplyJumpFromPower(hum, PlayerSettings.JumpValue)
+        else
+            if defaultUseJP ~= nil then hum.UseJumpPower = defaultUseJP else hum.UseJumpPower = false end
+            if defaultJH and defaultJH > 0 then
+                hum.JumpHeight = defaultJH
+            elseif defaultJP and defaultJP > 0 then
+                hum.JumpHeight = JumpPowerToJumpHeight(defaultJP)
+            end
+            if defaultJP and defaultJP > 0 then hum.JumpPower = defaultJP else hum.JumpPower = 50 end
+        end
+    end
+    Fluent:Notify({ Title = "QUANTUM", Content = "JumpPower: " .. (v and "On" or "Off"), Duration = 2 })
+end)
+
+Tabs.Movement:AddKeybind("JumpPowerKeybind", {
+    Title = "JumpPower Keybind",
+    Mode = "Toggle",
+    Default = "None",
+    Callback = function(v)
+        JumpToggle:SetValue(v)
+    end
+})
+
+Tabs.Movement:AddSlider("JumpPowerVal", {
+    Title = "JumpPower",
+    Default = 60.5,
+    Min = 50,
+    Max = 500,
+    Rounding = 1,
+    Callback = function(v)
+        PlayerSettings.JumpValue = v
+        if PlayerSettings.JumpEnabled then
+            local hum = player.Character and player.Character:FindFirstChild("Humanoid")
+            if hum then ApplyJumpFromPower(hum, v) end
+        end
+    end
+})
+
+Tabs.Movement:AddSection("Mouse")
+
+local RMBToggle = Tabs.Movement:AddToggle("RMBMouseLock", { Title = "RMB Mouse Lock", Default = false })
+RMBToggle:OnChanged(function(v)
+    rmbEnabled = v
+    if not v then
+        if UIS.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+            UIS.MouseBehavior = Enum.MouseBehavior.Default
+        end
+    end
+    Fluent:Notify({ Title = "QUANTUM", Content = "RMB Mouse Lock: " .. (v and "On" or "Off"), Duration = 2 })
+end)
+
+Tabs.Movement:AddKeybind("RMBMouseLockKeybind", {
+    Title = "RMB Mouse Lock Keybind",
+    Mode = "Toggle",
+    Default = "None",
+    Callback = function(v)
+        RMBToggle:SetValue(v)
+    end
+})
+
+-- ══════════════════════════════════════════════
+-- 3. AUTOMATICS TAB (Fluent)
+-- ══════════════════════════════════════════════
+Tabs.Automatics:AddSection("Anti Jersey Tug")
+
+local TugToggle = Tabs.Automatics:AddToggle("AntiJerseyTug", { Title = "Anti Jersey Tug", Default = false })
+TugToggle:OnChanged(function(v)
+    Settings.AntiJerseyTug = v
+    AutoSwipeCFG.Enabled = v
+    Fluent:Notify({ Title = "QUANTUM", Content = "Anti Jersey Tug: " .. (v and "On" or "Off"), Duration = 2 })
+end)
+
+Tabs.Automatics:AddKeybind("AntiJerseyTugKeybind", {
+    Title = "Anti Tug Keybind",
+    Mode = "Toggle",
+    Default = "None",
+    Callback = function(v)
+        TugToggle:SetValue(v)
+    end
+})
+
+Tabs.Automatics:AddDropdown("TugBreakMode", {
+    Title = "Break Mode",
+    Values = {"KeyPress", "Remote", "Both"},
+    Multi = false,
+    Default = "KeyPress",
+    Callback = function(v)
+        Settings.AntiJerseyTugMode = v
+        AutoSwipeCFG.Mode = v
+    end
+})
+
+Tabs.Automatics:AddSlider("TugCooldown", {
+    Title = "Tug Cooldown",
+    Default = 0.35,
+    Min = 0.05,
+    Max = 2,
+    Rounding = 2,
+    Callback = function(v)
+        Settings.AntiJerseyTugCooldown = v
+        AutoSwipeCFG.Cooldown = v
+    end
+})
+
+local SwipeReadyToggle = Tabs.Automatics:AddToggle("RequireSwipeReady", { Title = "Require Swipe Ready", Default = false })
+SwipeReadyToggle:OnChanged(function(v)
+    Settings.RequireSwipeReady = v
+    AutoSwipeCFG.RequireSwipeReady = v
+    Fluent:Notify({ Title = "QUANTUM", Content = "Require Swipe Ready: " .. (v and "On" or "Off"), Duration = 2 })
+end)
+
+-- ══════════════════════════════════════════════
+-- SETTINGS & CONFIG
+-- ══════════════════════════════════════════════
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+
+InterfaceManager:SetFolder("QUANTUM")
+SaveManager:SetFolder("QUANTUM/config")
+
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+
+Window:SelectTab(1)
+
+Fluent:Notify({
+    Title = "QUANTUM",
+    Content = "Script loaded successfully! QuantumRise.gg",
+    Duration = 5
+})
+
+SaveManager:LoadAutoloadConfig()
